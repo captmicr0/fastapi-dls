@@ -42,6 +42,10 @@ Docker-Images are available here for Intel (x86), AMD (amd64) and ARM (arm64):
 
 The images include database drivers for `postgres`, `mariadb` and `sqlite`.
 
+```
+docker pull ghcr.io/captmicr0/fastapi-dls:latest
+```
+
 **Run this on the Docker-Host**
 
 ```shell
@@ -61,7 +65,7 @@ To test if everything is set up properly you can start container as following:
 
 ```shell
 docker volume create dls-db
-docker run -e DLS_URL=`hostname -i` -e DLS_PORT=443 -p 443:443 -v $WORKING_DIR:/app/cert -v dls-db:/app/database collinwebdesigns/fastapi-dls:latest
+docker run -e DLS_URL=`hostname -i` -e DLS_PORT=443 -p 443:443 -v $WORKING_DIR:/app/cert -v dls-db:/app/database ghcr.io/captmicr0/fastapi-dls:latest
 ```
 
 **Docker-Compose / Deploy stack**
@@ -83,7 +87,7 @@ x-dls-variables: &dls-variables
 
 services:
   dls:
-    image: collinwebdesigns/fastapi-dls:latest
+    image: ghcr.io/captmicr0/fastapi-dls:latest
     restart: always
     environment:
       <<: *dls-variables
