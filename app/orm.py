@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
-from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, DATETIME, update, and_, inspect, text
+from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, TIMESTAMP, DATETIME, update, and_, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -74,9 +74,9 @@ class Lease(Base):
 
     origin_ref = Column(CHAR(length=36), ForeignKey(Origin.origin_ref, ondelete='CASCADE'), nullable=False, index=True)  # uuid4
     # scope_ref = Column(CHAR(length=36), nullable=False, index=True)  # uuid4 # not necessary, we only support one scope_ref ('ALLOTMENT_REF')
-    lease_created = Column(DATETIME(), nullable=False)
-    lease_expires = Column(DATETIME(), nullable=False)
-    lease_updated = Column(DATETIME(), nullable=False)
+    lease_created = Column(TIMESTAMP(), nullable=False)
+    lease_expires = Column(TIMESTAMP(), nullable=False)
+    lease_updated = Column(TIMESTAMP(), nullable=False)
 
     def __repr__(self):
         return f'Lease(origin_ref={self.origin_ref}, lease_ref={self.lease_ref}, expires={self.lease_expires})'
