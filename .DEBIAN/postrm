@@ -1,9 +1,0 @@
-#!/bin/bash
-
-# is removed automatically
-#if [ "$1" = purge ] && [ -d /usr/share/fastapi-dls ]; then
-#  echo "> Removing app."
-#  rm -r /usr/share/fastapi-dls
-#fi
-
-echo -e "> Done."

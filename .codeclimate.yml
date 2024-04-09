@@ -1,7 +1,0 @@
-plugins:
-  bandit:
-    enabled: true
-  sonar-python:
-    enabled: true
-  pylint:
-    enabled: true

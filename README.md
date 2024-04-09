@@ -37,14 +37,9 @@ Tested with Ubuntu 22.10 (EOL!) (from Proxmox templates), actually its consuming
 
 Docker-Images are available here for Intel (x86), AMD (amd64) and ARM (arm64):
 
-- [Docker-Hub](https://hub.docker.com/repository/docker/collinwebdesigns/fastapi-dls): `collinwebdesigns/fastapi-dls:latest`
-- [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/container_registry): `registry.git.collinwebdesigns.de/oscar.krause/fastapi-dls:latest`
+- [GitHub-Registry](https://github.com/captmicr0/fastapi-dls): `ghcr.io/captmicr0/fastapi-dls:latest`
 
 The images include database drivers for `postgres`, `mariadb` and `sqlite`.
-
-```
-docker pull ghcr.io/captmicr0/fastapi-dls:latest
-```
 
 **Run this on the Docker-Host**
 
@@ -63,6 +58,8 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout  $WORKING_DIR/webse
 
 To test if everything is set up properly you can start container as following:
 
+
+SQLite Database:
 ```shell
 docker volume create dls-db
 docker run -e DLS_URL=`hostname -i` -e DLS_PORT=443 -p 443:443 -v $WORKING_DIR:/app/cert -v dls-db:/app/database ghcr.io/captmicr0/fastapi-dls:latest
@@ -74,23 +71,77 @@ See [`examples`](examples) directory for more advanced examples (with reverse pr
 
 > Adjust *REQUIRED* variables as needed
 
+PostgreSQL (the database can be located anywhere, I used a postgres container for this example):
+```yaml
+version: "3.7"
+
+services:
+  fastapi-dls-db:
+    image: ghcr.io/captmicr0/docker-postgresql-multiple-databases:latest
+    container_name: fastapi-dls-db
+    user: "99:100"
+    environment:
+      - POSTGRES_MULTIPLE_DATABASES=[DB NAME]
+      - POSTGRES_USER=[DB USER]
+      - POSTGRES_PASSWORD=[DB PASS]
+      - TZ=America/New_York
+    volumes:
+      # DATABASE
+      - docker_data_fastapi_dls_db:/var/lib/postgresql/data
+      # TIMEZONE
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+     - [DB PORT]:5432/tcp
+    healthcheck:
+      test: pg_isready -U qstick
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  fastapi-dls:
+    image: ghcr.io/captmicr0/fastapi-dls:latest
+    container_name: fastapi-dls
+    environment:
+      - TZ=America/New_York # REQUIRED, set your timezone correctly on fastapi-dls AND YOUR CLIENTS !!!
+      - DLS_URL=fastapi-dls.localdomain # REQUIRED, change to your ip or hostname
+      - DLS_PORT=443
+      - LEASE_EXPIRE_DAYS=90  # 90 days is maximum
+      - DATABASE=postgresql://[DB USER]:[DB PASS]@[DB HOST]:[DB PORT]/[DB NAME]
+      - DEBUG=false
+    ports:
+      - "443:443"
+    volumes:
+      - /opt/docker/fastapi-dls/cert:/app/cert
+    logging:  # optional, for those who do not need logs
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    restart: always
+
+volumes:
+  docker_data_fastapi_dls_db:
+```
+
+SQLite:
 ```yaml
 version: '3.9'
 
 x-dls-variables: &dls-variables
-  TZ: Europe/Berlin # REQUIRED, set your timezone correctly on fastapi-dls AND YOUR CLIENTS !!!
-  DLS_URL: localhost # REQUIRED, change to your ip or hostname
-  DLS_PORT: 443
-  LEASE_EXPIRE_DAYS: 90  # 90 days is maximum
-  DATABASE: sqlite:////app/database/db.sqlite
-  DEBUG: false
+  
 
 services:
   dls:
     image: ghcr.io/captmicr0/fastapi-dls:latest
     restart: always
     environment:
-      <<: *dls-variables
+      TZ: Europe/Berlin # REQUIRED, set your timezone correctly on fastapi-dls AND YOUR CLIENTS !!!
+      DLS_URL: localhost # REQUIRED, change to your ip or hostname
+      DLS_PORT: 443
+      LEASE_EXPIRE_DAYS: 90  # 90 days is maximum
+      DATABASE: sqlite:////app/database/db.sqlite
+      DEBUG: false
     ports:
       - "443:443"
     volumes:
@@ -105,281 +156,6 @@ services:
 volumes:
   dls-db:
 ```
-
-## Debian/Ubuntu/macOS (manual method using `git clone` and python virtual environment)
-
-Tested on `Debian 11 (bullseye)` and `macOS Ventura (13.6)`, Ubuntu may also work. **Please note that setup on macOS
-differs from Debian based systems.**
-
-**Make sure you are logged in as root.**
-
-**Install requirements**
-
-```shell
-apt-get update && apt-get install git python3-venv python3-pip
-```
-
-**Install FastAPI-DLS**
-
-```shell
-WORKING_DIR=/opt/fastapi-dls
-mkdir -p $WORKING_DIR
-cd $WORKING_DIR
-git clone https://git.collinwebdesigns.de/oscar.krause/fastapi-dls .
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-deactivate
-chown -R www-data:www-data $WORKING_DIR
-```
-
-**Create keypair and webserver certificate**
-
-```shell
-WORKING_DIR=/opt/fastapi-dls/app/cert
-mkdir -p $WORKING_DIR
-cd $WORKING_DIR
-# create instance private and public key for singing JWT's
-openssl genrsa -out $WORKING_DIR/instance.private.pem 2048 
-openssl rsa -in $WORKING_DIR/instance.private.pem -outform PEM -pubout -out $WORKING_DIR/instance.public.pem
-# create ssl certificate for integrated webserver (uvicorn) - because clients rely on ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout  $WORKING_DIR/webserver.key -out $WORKING_DIR/webserver.crt
-chown -R www-data:www-data $WORKING_DIR
-```
-
-**Test Service**
-
-This is only to test whether the service starts successfully.
-
-```shell
-cd /opt/fastapi-dls/app
-sudo -u www-data /opt/fastapi-dls/venv/bin/uvicorn main:app --app-dir=/opt/fastapi-dls/app
-# or
-su - www-data -c "/opt/fastapi-dls/venv/bin/uvicorn main:app --app-dir=/opt/fastapi-dls/app"
-```
-
-**Create config file**
-
-> Adjust `DLS_URL` as needed (accessing from LAN won't work with 127.0.0.1)
-
-```shell
-mkdir /etc/fastapi-dls
-cat <<EOF >/etc/fastapi-dls/env
-DLS_URL=127.0.0.1
-DLS_PORT=443
-LEASE_EXPIRE_DAYS=90
-DATABASE=sqlite:////opt/fastapi-dls/app/db.sqlite
-
-EOF
-```
-
-**Create service**
-
-```shell
-cat <<EOF >/etc/systemd/system/fastapi-dls.service
-[Unit]
-Description=Service for fastapi-dls
-After=network.target
-
-[Service]
-User=www-data
-Group=www-data
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-WorkingDirectory=/opt/fastapi-dls/app
-EnvironmentFile=/etc/fastapi-dls/env
-ExecStart=/opt/fastapi-dls/venv/bin/uvicorn main:app \\
-  --env-file /etc/fastapi-dls/env \\
-  --host \$DLS_URL --port \$DLS_PORT \\
-  --app-dir /opt/fastapi-dls/app \\
-  --ssl-keyfile /opt/fastapi-dls/app/cert/webserver.key \\
-  --ssl-certfile /opt/fastapi-dls/app/cert/webserver.crt \\
-  --proxy-headers
-Restart=always
-KillSignal=SIGQUIT
-Type=simple
-NotifyAccess=all
-
-[Install]
-WantedBy=multi-user.target
-
-EOF
-```
-
-Now you have to run `systemctl daemon-reload`. After that you can start service
-with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
-
-## openSUSE Leap (manual method using `git clone` and python virtual environment)
-
-Tested on `openSUSE Leap 15.4`, openSUSE Tumbleweed may also work.
-
-**Install requirements**
-
-```shell
-zypper in -y python310 python3-virtualenv python3-pip
-```
-
-**Install FastAPI-DLS**
-
-```shell
-BASE_DIR=/opt/fastapi-dls
-SERVICE_USER=dls
-mkdir -p ${BASE_DIR}
-cd ${BASE_DIR}
-git clone https://git.collinwebdesigns.de/oscar.krause/fastapi-dls .
-python3.10 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-deactivate
-useradd -r ${SERVICE_USER} -M -d /opt/fastapi-dls
-chown -R ${SERVICE_USER} ${BASE_DIR}
-```
-
-**Create keypair and webserver certificate**
-
-```shell
-CERT_DIR=${BASE_DIR}/app/cert
-SERVICE_USER=dls
-mkdir ${CERT_DIR}
-cd ${CERT_DIR}
-# create instance private and public key for singing JWT's
-openssl genrsa -out ${CERT_DIR}/instance.private.pem 2048 
-openssl rsa -in ${CERT_DIR}/instance.private.pem -outform PEM -pubout -out ${CERT_DIR}/instance.public.pem
-# create ssl certificate for integrated webserver (uvicorn) - because clients rely on ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout  ${CERT_DIR}/webserver.key -out ${CERT_DIR}/webserver.crt
-chown -R ${SERVICE_USER} ${CERT_DIR}
-```
-
-**Test Service**
-
-This is only to test whether the service starts successfully.
-
-```shell
-BASE_DIR=/opt/fastapi-dls
-SERVICE_USER=dls
-cd ${BASE_DIR}
-sudo -u ${SERVICE_USER} ${BASE_DIR}/venv/bin/uvicorn main:app --app-dir=${BASE_DIR}/app
-# or
-su - ${SERVICE_USER} -c "${BASE_DIR}/venv/bin/uvicorn main:app --app-dir=${BASE_DIR}/app"
-```
-
-**Create config file**
-
-> Adjust `DLS_URL` as needed (accessing from LAN won't work with 127.0.0.1)
-
-```shell
-BASE_DIR=/opt/fastapi-dls
-cat <<EOF >/etc/fastapi-dls/env
-DLS_URL=127.0.0.1
-DLS_PORT=443
-LEASE_EXPIRE_DAYS=90
-DATABASE=sqlite:///${BASE_DIR}/app/db.sqlite
-
-EOF
-```
-
-**Create service**
-
-```shell
-BASE_DIR=/opt/fastapi-dls
-SERVICE_USER=dls
-cat <<EOF >/etc/systemd/system/fastapi-dls.service
-[Unit]
-Description=Service for fastapi-dls vGPU licensing service
-After=network.target
-
-[Service]
-User=${SERVICE_USER}
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-WorkingDirectory=${BASE_DIR}/app
-EnvironmentFile=/etc/fastapi-dls/env
-ExecStart=${BASE_DIR}/venv/bin/uvicorn main:app \\
-  --env-file /etc/fastapi-dls/env \\
-  --host \$DLS_URL --port \$DLS_PORT \\
-  --app-dir ${BASE_DIR}/app \\
-  --ssl-keyfile ${BASE_DIR}/app/cert/webserver.key \\
-  --ssl-certfile ${BASE_DIR}/app/cert/webserver.crt \\
-  --proxy-headers
-Restart=always
-KillSignal=SIGQUIT
-Type=simple
-NotifyAccess=all
-
-[Install]
-WantedBy=multi-user.target
-
-EOF
-```
-
-Now you have to run `systemctl daemon-reload`. After that you can start service
-with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
-
-## Debian/Ubuntu (using `dpkg`)
-
-Packages are available here:
-
-- [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/-/packages)
-
-Successful tested with:
-
-- Debian 12 (Bookworm)
-- Ubuntu 22.10 (Kinetic Kudu) (EOL!)
-- Ubuntu 23.04 (Lunar)
-
-Not working with:
-
-- Debian 11 (Bullseye) and lower (missing `python-jose` dependency)
-- Ubuntu 22.04 (Jammy Jellyfish) (not supported as for 15.01.2023 due to [fastapi - uvicorn version missmatch](https://bugs.launchpad.net/ubuntu/+source/fastapi/+bug/1970557))
-
-**Run this on your server instance**
-
-First go to [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/-/packages) and select your
-version. Then you have to copy the download link of the `fastapi-dls_X.Y.Z_amd64.deb` asset.
-
-```shell
-apt-get update
-FILENAME=/opt/fastapi-dls.deb
-wget -O $FILENAME <download-url>
-dpkg -i $FILENAME
-apt-get install -f --fix-missing
-```
-
-Start with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
-Now you have to edit `/etc/fastapi-dls/env` as needed.
-
-## ArchLinux (using `pacman`)
-
-**Shout out to `samicrusader` who created build file for ArchLinux!**
-
-Packages are available here:
-
-- [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/-/packages)
-
-```shell
-pacman -Sy
-FILENAME=/opt/fastapi-dls.pkg.tar.zst
-
-curl -o $FILENAME <download-url>
-# or
-wget -O $FILENAME <download-url>
-
-pacman -U --noconfirm fastapi-dls.pkg.tar.zst
-```
-
-Start with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
-Now you have to edit `/etc/default/fastapi-dls` as needed.
-
-## unRAID
-
-1. Download [this xml file](.UNRAID/FastAPI-DLS.xml)
-2. Put it in /boot/config/plugins/dockerMan/templates-user/
-3. Go to Docker page, scroll down to `Add Container`, click on Template list and choose `FastAPI-DLS`
-4. Open terminal/ssh, follow the instructions in overview description
-5. Setup your container `IP`, `Port`, `DLS_URL` and `DLS_PORT`
-6. Apply and let it boot up
-
-*Unraid users must also make sure they have Host access to custom networks enabled if unraid is the vgpu guest*.
-
-Continue [here](#unraid-guest) for docker guest setup.
 
 ## Let's Encrypt Certificate (optional)
 
@@ -708,29 +484,8 @@ The error message can safely be ignored (since we have no license limitation :P)
 <0>:End Logging
 ```
 
-#### log with nginx as reverse proxy (see [docker-compose-http-and-https.yml](examples/docker-compose-http-and-https.yml))
-
-```
-<1>:NLS initialized
-<2>:NLS initialized
-<1>:Valid GRID license not found. GPU features and performance will be fully degraded. To enable full functionality please configure licensing details.
-<1>:License acquired successfully. (Info: 192.168.178.33, NVIDIA RTX Virtual Workstation; Expiry: 2023-1-4 16:48:20 GMT)
-<2>:Valid GRID license not found. GPU features and performance will be fully degraded. To enable full functionality please configure licensing details.
-<2>:License acquired successfully from local trusted store. (Info: 192.168.178.33, NVIDIA RTX Virtual Workstation; Expiry: 2023-1-4 16:48:20 GMT)
-<2>:End Logging
-<1>:End Logging
-<0>:License returned successfully. (Info: 192.168.178.33)
-<0>:End Logging
-```
-
 </details>
 
 # Credits
 
 Thanks to vGPU community and all who uses this project and report bugs.
-
-Special thanks to 
-
-- @samicrusader who created build file for ArchLinux
-- @cyrus who wrote the section for openSUSE
-- @midi who wrote the section for unRAID
